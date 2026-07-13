@@ -165,7 +165,7 @@ def detect_trends(count: int = MAX_CONCEPTS) -> list[dict]:
     """Call Gemini to generate viral t-shirt concepts."""
     log.info(f"Detecting {count} viral trends via Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     prompt = f"""
 Generate {count} viral Florida/angler t-shirt concepts right now.
