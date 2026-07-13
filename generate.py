@@ -25,6 +25,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+import base64
 import openai
 from PIL import Image
 import google.generativeai as genai
@@ -50,13 +51,17 @@ log = logging.getLogger("generate")
 # ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
-OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
-OUTPUT_DIR      = Path(os.getenv("OUTPUT_DIR", "output/images"))
-CONCEPTS_FILE   = Path(os.getenv("CONCEPTS_FILE", "output/generated_concepts.json"))
-MIN_DPI         = int(os.getenv("MIN_DPI", "300"))
-IMAGE_SIZE      = os.getenv("DALLE_IMAGE_SIZE", "1024x1024")   # DALL-E 3 supports 1024x1024, 1024x1792, 1792x1024
-MAX_CONCEPTS    = int(os.getenv("MAX_CONCEPTS", "5"))
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")
+FORGE_API_URL       = os.getenv("BUILT_IN_FORGE_API_URL", "").rstrip("/")
+FORGE_API_KEY       = os.getenv("BUILT_IN_FORGE_API_KEY", "")
+OUTPUT_DIR          = Path(os.getenv("OUTPUT_DIR", "output/images"))
+CONCEPTS_FILE       = Path(os.getenv("CONCEPTS_FILE", "output/generated_concepts.json"))
+MIN_DPI             = int(os.getenv("MIN_DPI", "300"))
+# Forge image model — MODEL_GPT_IMAGE_2 = gpt-image-2 (default); MODEL_GEMINI_IMAGE = Gemini 2.5 Flash
+FORGE_IMAGE_MODEL   = os.getenv("FORGE_IMAGE_MODEL", "MODEL_GPT_IMAGE_2")
+FORGE_IMAGE_QUALITY = os.getenv("FORGE_IMAGE_QUALITY", "high")
+MAX_CONCEPTS        = int(os.getenv("MAX_CONCEPTS", "5"))
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 CONCEPTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +170,7 @@ def detect_trends(count: int = MAX_CONCEPTS) -> list[dict]:
     """Call Gemini to generate viral t-shirt concepts."""
     log.info(f"Detecting {count} viral trends via Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-flash-latest")
 
     prompt = f"""
 Generate {count} viral Florida/angler t-shirt concepts right now.
@@ -194,9 +199,9 @@ DON'T FEED THE LOCALS, KAYAK KARMA, AIRBOAT VIBES, FLORIDA MAN APPROVED.
 
 
 # ─────────────────────────────────────────────
-# DALL-E 3: Image Generation
+# Forge Image API: Image Generation
 # ─────────────────────────────────────────────
-# Style-aware print spec suffixes appended to every DALL-E prompt
+# Style-aware print spec suffixes appended to every image prompt
 PRINT_SPEC_SMACK = (
     " Bold oversized all-caps text, high contrast white or neon green on black. "
     "Heavy condensed block font (Impact/Anton/Bebas Neue style). Text-heavy centered layout. "
@@ -226,40 +231,60 @@ def get_print_spec(design_style: str) -> str:
 )
 def generate_dalle_image(prompt: str, concept_id: str, design_style: str = "smack") -> tuple[Path, dict]:
     """
-    Call DALL-E 3 to generate an image, download it, and return
-    (local_path, image_metadata).
+    Call the Manus Forge image API (images.v1.ImageService/GenerateImage) to
+    generate an image, decode the base64 response, and save it locally.
+    Returns (local_path, image_metadata).
     Retries up to 3 times with exponential backoff on any failure.
     design_style: 'smack' (bold text-heavy viral) or 'retro' (vintage badge)
     """
-    log.info(f"[{concept_id}] Calling DALL-E 3 [{design_style.upper()} style]...")
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    if not FORGE_API_URL or not FORGE_API_KEY:
+        raise RuntimeError(
+            "BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY must be set for image generation."
+        )
+
+    log.info(f"[{concept_id}] Calling Forge image API [{design_style.upper()} style, model={FORGE_IMAGE_MODEL}]...")
 
     full_prompt = prompt + get_print_spec(design_style)
 
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=full_prompt,
-        size=IMAGE_SIZE,
-        quality="hd",
-        n=1,
-        response_format="url",
+    endpoint = f"{FORGE_API_URL}/images.v1.ImageService/GenerateImage"
+    payload = {
+        "prompt": full_prompt,
+        "model": FORGE_IMAGE_MODEL,
+        "quality": FORGE_IMAGE_QUALITY,
+    }
+
+    resp = requests.post(
+        endpoint,
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {FORGE_API_KEY}",
+            "Content-Type": "application/json",
+            "connect-protocol-version": "1",
+        },
+        timeout=120,
     )
 
-    image_url = response.data[0].url
-    revised_prompt = getattr(response.data[0], "revised_prompt", prompt)
-    log.info(f"[{concept_id}] DALL-E 3 image URL received. Downloading...")
+    if not resp.ok:
+        raise RuntimeError(
+            f"Forge image API returned {resp.status_code}: {resp.text[:300]}"
+        )
 
-    # Download the image
-    img_response = requests.get(image_url, timeout=60)
-    img_response.raise_for_status()
+    result = resp.json()
+    image_data = result.get("image", {})
+    b64_json = image_data.get("b64Json", "")
+    mime_type = image_data.get("mimeType", "image/png")
 
-    # Save to disk
+    if not b64_json:
+        raise RuntimeError(f"Forge image API returned empty b64Json. Full response: {str(result)[:300]}")
+
+    # Decode base64 → bytes → save as PNG
+    image_bytes = base64.b64decode(b64_json)
     filename = f"{concept_id}_{int(time.time())}.png"
     local_path = OUTPUT_DIR / filename
-    local_path.write_bytes(img_response.content)
-    log.info(f"[{concept_id}] Image saved → {local_path}")
+    local_path.write_bytes(image_bytes)
+    log.info(f"[{concept_id}] Image saved → {local_path} ({len(image_bytes):,} bytes, mime={mime_type})")
 
-    return local_path, {"revised_prompt": revised_prompt, "url": image_url}
+    return local_path, {"revised_prompt": full_prompt, "model": FORGE_IMAGE_MODEL}
 
 
 # ─────────────────────────────────────────────
@@ -286,7 +311,7 @@ def validate_image(path: Path, concept_id: str) -> dict:
     else:
         dpi = int(dpi_info)
 
-    # DALL-E 3 returns 1024x1024 at 72 DPI metadata but the pixel density
+    # Forge/gpt-image-2 returns 1024x1024 at 72 DPI metadata but the pixel density
     # is sufficient for 12x16 inch print at 300 DPI when upscaled.
     # We treat 1024x1024 as print-acceptable and log a warning if DPI < 300.
     pixel_count = width * height
@@ -367,7 +392,7 @@ def generate_concept(raw: dict, attempt: int = 1) -> Optional[GeneratedConcept]:
         )
 
     except RetryError as e:
-        log.error(f"[{concept_id}] All DALL-E retries exhausted: {e}")
+        log.error(f"[{concept_id}] All image generation retries exhausted: {e}")
         return None
     except ValueError as e:
         log.error(f"[{concept_id}] Image validation failed: {e}")
