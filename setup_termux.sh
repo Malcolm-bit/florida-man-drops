@@ -5,12 +5,12 @@
 # Run once after cloning the repo:
 #   bash setup_termux.sh
 #
-# What this does:
-#   1. Updates Termux packages
-#   2. Installs Python 3 + pip
-#   3. Installs all Python dependencies
-#   4. Creates a .env template for your API keys
-#   5. Verifies the environment is ready
+# Fixes applied for Termux:
+#   - Uses pip3 install (NOT pip install --upgrade pip, which
+#     breaks the Termux-managed pip package)
+#   - Installs only the packages the pipeline actually needs
+#     (no pandas, no build-from-source packages)
+#   - Uses pkg install for system libs required by Pillow
 # ============================================================
 
 set -e
@@ -22,23 +22,25 @@ echo "============================================================"
 echo ""
 
 # ─────────────────────────────────────────────
-# 1. Update Termux packages
+# 1. Update Termux packages (skip pip — Termux manages it)
 # ─────────────────────────────────────────────
 echo "[1/5] Updating Termux packages..."
 pkg update -y && pkg upgrade -y
 
 # ─────────────────────────────────────────────
-# 2. Install system dependencies
+# 2. Install system dependencies required by Pillow
 # ─────────────────────────────────────────────
-echo "[2/5] Installing Python, libjpeg, libpng (required by Pillow)..."
-pkg install -y python libjpeg-turbo libpng
+echo "[2/5] Installing libjpeg, libpng, libwebp (required by Pillow)..."
+pkg install -y libjpeg-turbo libpng libwebp
 
 # ─────────────────────────────────────────────
 # 3. Install Python packages
+#    NOTE: Do NOT run 'pip install --upgrade pip' in Termux —
+#    it overwrites the Termux-managed pip and breaks things.
+#    Use pip3 install directly.
 # ─────────────────────────────────────────────
 echo "[3/5] Installing Python dependencies..."
-pip install --upgrade pip
-pip install \
+pip3 install \
     openai \
     Pillow \
     google-generativeai \
@@ -73,6 +75,9 @@ PRINTFUL_API_KEY=
 # Get from: https://platform.openai.com/api-keys
 OPENAI_API_KEY=
 
+# Use OpenAI DALL-E 3 by default (no Forge API needed on Termux)
+IMAGE_PROVIDER=openai
+
 # Optional: Scope to a specific Printful store ID
 # PRINTFUL_STORE_ID=
 
@@ -97,16 +102,22 @@ if [ -f ".env" ]; then
     set -a && source .env && set +a
 fi
 
-python3 main.py --image-provider openai --dry-run && echo "" && echo "  ✓ Environment check passed" || echo "  ✗ Fill in .env and re-run: source .env && python3 main.py --image-provider openai --dry-run"
+python3 main.py --image-provider openai --dry-run \
+    && echo "" && echo "  ✓ Environment check passed" \
+    || echo "  ✗ Fill in .env and re-run: source .env && python3 main.py --image-provider openai --dry-run"
 
 echo ""
 echo "============================================================"
 echo "  Setup complete!"
 echo ""
 echo "  Next steps:"
-echo "  1. Edit .env and fill in your API keys"
-echo "  2. Load env:  source .env"
-echo "  3. Test run:  python3 main.py --image-provider openai --count 1 --stage generate"
-echo "  4. Full run:  python3 main.py --image-provider openai --count 3"
+echo "  1. Edit .env and fill in your API keys:"
+echo "       nano .env"
+echo "  2. Load env:"
+echo "       source .env"
+echo "  3. Single-concept test:"
+echo "       python3 main.py --image-provider openai --count 1 --stage generate"
+echo "  4. Full pipeline:"
+echo "       python3 main.py --image-provider openai --count 3"
 echo "============================================================"
 echo ""
