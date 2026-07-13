@@ -231,60 +231,84 @@ def get_print_spec(design_style: str) -> str:
 )
 def generate_dalle_image(prompt: str, concept_id: str, design_style: str = "smack") -> tuple[Path, dict]:
     """
-    Call the Manus Forge image API (images.v1.ImageService/GenerateImage) to
-    generate an image, decode the base64 response, and save it locally.
+    Generate an image using either the Manus Forge API or OpenAI DALL-E 3,
+    controlled by the IMAGE_PROVIDER env var ('forge' or 'openai').
     Returns (local_path, image_metadata).
     Retries up to 3 times with exponential backoff on any failure.
     design_style: 'smack' (bold text-heavy viral) or 'retro' (vintage badge)
     """
-    if not FORGE_API_URL or not FORGE_API_KEY:
-        raise RuntimeError(
-            "BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY must be set for image generation."
-        )
-
-    log.info(f"[{concept_id}] Calling Forge image API [{design_style.upper()} style, model={FORGE_IMAGE_MODEL}]...")
-
+    provider = os.getenv("IMAGE_PROVIDER", "forge")
     full_prompt = prompt + get_print_spec(design_style)
-
-    endpoint = f"{FORGE_API_URL}/images.v1.ImageService/GenerateImage"
-    payload = {
-        "prompt": full_prompt,
-        "model": FORGE_IMAGE_MODEL,
-        "quality": FORGE_IMAGE_QUALITY,
-    }
-
-    resp = requests.post(
-        endpoint,
-        json=payload,
-        headers={
-            "Authorization": f"Bearer {FORGE_API_KEY}",
-            "Content-Type": "application/json",
-            "connect-protocol-version": "1",
-        },
-        timeout=120,
-    )
-
-    if not resp.ok:
-        raise RuntimeError(
-            f"Forge image API returned {resp.status_code}: {resp.text[:300]}"
-        )
-
-    result = resp.json()
-    image_data = result.get("image", {})
-    b64_json = image_data.get("b64Json", "")
-    mime_type = image_data.get("mimeType", "image/png")
-
-    if not b64_json:
-        raise RuntimeError(f"Forge image API returned empty b64Json. Full response: {str(result)[:300]}")
-
-    # Decode base64 → bytes → save as PNG
-    image_bytes = base64.b64decode(b64_json)
     filename = f"{concept_id}_{int(time.time())}.png"
     local_path = OUTPUT_DIR / filename
-    local_path.write_bytes(image_bytes)
-    log.info(f"[{concept_id}] Image saved → {local_path} ({len(image_bytes):,} bytes, mime={mime_type})")
 
-    return local_path, {"revised_prompt": full_prompt, "model": FORGE_IMAGE_MODEL}
+    if provider == "openai":
+        # ─────────────────────────────────────────────
+        # OpenAI DALL-E 3 (Termux / external machines)
+        # ─────────────────────────────────────────────
+        if not OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY must be set for --image-provider openai")
+        log.info(f"[{concept_id}] Calling DALL-E 3 via OpenAI [{design_style.upper()} style]...")
+        client = openai.OpenAI(
+            api_key=OPENAI_API_KEY,
+            base_url="https://api.openai.com/v1",  # always use real OpenAI endpoint
+        )
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=full_prompt,
+            size="1024x1024",
+            quality="hd",
+            n=1,
+            response_format="url",
+        )
+        image_url = response.data[0].url
+        revised_prompt = getattr(response.data[0], "revised_prompt", full_prompt)
+        log.info(f"[{concept_id}] DALL-E 3 URL received. Downloading...")
+        img_response = requests.get(image_url, timeout=60)
+        img_response.raise_for_status()
+        local_path.write_bytes(img_response.content)
+        log.info(f"[{concept_id}] Image saved → {local_path} ({len(img_response.content):,} bytes)")
+        return local_path, {"revised_prompt": revised_prompt, "url": image_url}
+
+    else:
+        # ─────────────────────────────────────────────
+        # Manus Forge image API (sandbox default)
+        # ─────────────────────────────────────────────
+        if not FORGE_API_URL or not FORGE_API_KEY:
+            raise RuntimeError(
+                "BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY must be set for --image-provider forge"
+            )
+        log.info(f"[{concept_id}] Calling Forge image API [{design_style.upper()} style, model={FORGE_IMAGE_MODEL}]...")
+        endpoint = f"{FORGE_API_URL}/images.v1.ImageService/GenerateImage"
+        payload = {
+            "prompt": full_prompt,
+            "model": FORGE_IMAGE_MODEL,
+            "quality": FORGE_IMAGE_QUALITY,
+        }
+        resp = requests.post(
+            endpoint,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {FORGE_API_KEY}",
+                "Content-Type": "application/json",
+                "connect-protocol-version": "1",
+            },
+            timeout=120,
+        )
+        if not resp.ok:
+            raise RuntimeError(
+                f"Forge image API returned {resp.status_code}: {resp.text[:300]}"
+            )
+        result = resp.json()
+        image_data = result.get("image", {})
+        b64_json = image_data.get("b64Json", "")
+        mime_type = image_data.get("mimeType", "image/png")
+        if not b64_json:
+            raise RuntimeError(f"Forge image API returned empty b64Json. Full response: {str(result)[:300]}")
+        image_bytes = base64.b64decode(b64_json)
+        local_path.write_bytes(image_bytes)
+        log.info(f"[{concept_id}] Image saved → {local_path} ({len(image_bytes):,} bytes, mime={mime_type})")
+        return local_path, {"revised_prompt": full_prompt, "model": FORGE_IMAGE_MODEL}
 
 
 # ─────────────────────────────────────────────

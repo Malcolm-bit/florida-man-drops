@@ -4,30 +4,40 @@ main.py — Florida Man Drops Automation Factory
 Master Controller — Orchestrates the Full Automation Pipeline
 
 Pipeline Stages:
-  1. GENERATE  — Detect viral trends + generate DALL-E 3 images (generate.py)
+  1. GENERATE  — Detect viral trends + generate images (generate.py)
   2. CATALOG   — Validate images with Pillow + approve concepts (catalog.py)
   3. UPLOAD    — Upload to Printful + create products + generate mockups (upload.py)
   4. DEPLOY    — Sync to storefront + generate deployment report (deploy.py)
 
 Usage:
-  python3 main.py                    # Run full pipeline
-  python3 main.py --stage generate   # Run only generation phase
-  python3 main.py --stage catalog    # Run only catalog phase
-  python3 main.py --stage upload     # Run only upload phase
-  python3 main.py --stage deploy     # Run only deploy phase
-  python3 main.py --count 3          # Generate 3 concepts (default: 5)
-  python3 main.py --dry-run          # Validate env + imports only
+  python3 main.py                              # Run full pipeline
+  python3 main.py --stage generate             # Run only generation phase
+  python3 main.py --stage catalog              # Run only catalog phase
+  python3 main.py --stage upload               # Run only upload phase
+  python3 main.py --stage deploy               # Run only deploy phase
+  python3 main.py --count 3                    # Generate 3 concepts (default: 5)
+  python3 main.py --dry-run                    # Validate env + imports only
+  python3 main.py --image-provider openai      # Use DALL-E 3 via OpenAI API key
+  python3 main.py --image-provider forge       # Use Forge image API (default)
 
 Environment Variables Required:
-  OPENAI_API_KEY      — DALL-E 3 image generation
   GEMINI_API_KEY      — Viral trend detection
   PRINTFUL_API_KEY    — Printful Bearer token (OAuth 2.0)
+
+  For --image-provider openai (default on Termux / external machines):
+    OPENAI_API_KEY    — DALL-E 3 image generation (platform.openai.com/api-keys)
+
+  For --image-provider forge (default in Manus sandbox):
+    BUILT_IN_FORGE_API_URL  — Manus Forge base URL
+    BUILT_IN_FORGE_API_KEY  — Manus Forge bearer token
 
 Optional:
   PRINTFUL_STORE_ID   — Scope to specific Printful store
   MAX_CONCEPTS        — Number of concepts to generate (default: 5)
   MIN_CONFIDENCE      — Minimum confidence score to approve (default: 75)
   OUTPUT_DIR          — Directory for generated images (default: output/images)
+  FORGE_IMAGE_MODEL   — Forge model enum (default: MODEL_GPT_IMAGE_2)
+  FORGE_IMAGE_QUALITY — Forge quality (default: high)
   DEPLOY_WEBHOOK_URL  — POST notification URL on successful deployment
 """
 
@@ -57,30 +67,40 @@ log = logging.getLogger("main")
 # ─────────────────────────────────────────────
 # Required Environment Variables
 # ─────────────────────────────────────────────
-REQUIRED_ENV_VARS = {
-    "OPENAI_API_KEY":   "DALL-E 3 image generation (get from platform.openai.com/api-keys)",
+REQUIRED_ENV_VARS_ALWAYS = {
     "GEMINI_API_KEY":   "Viral trend detection (get from aistudio.google.com/apikey)",
     "PRINTFUL_API_KEY": "Printful Bearer token (get from developers.printful.com → Private token)",
 }
+REQUIRED_ENV_VARS_OPENAI = {
+    "OPENAI_API_KEY":   "DALL-E 3 image generation (get from platform.openai.com/api-keys)",
+}
+REQUIRED_ENV_VARS_FORGE = {
+    "BUILT_IN_FORGE_API_URL": "Manus Forge base URL",
+    "BUILT_IN_FORGE_API_KEY": "Manus Forge bearer token",
+}
 
-
-def check_environment() -> bool:
+def check_environment(image_provider: str = "forge") -> bool:
     """Validate all required environment variables are set. Returns True if OK."""
+    provider_vars = REQUIRED_ENV_VARS_OPENAI if image_provider == "openai" else REQUIRED_ENV_VARS_FORGE
+    all_required = {**REQUIRED_ENV_VARS_ALWAYS, **provider_vars}
     missing = []
-    for var, description in REQUIRED_ENV_VARS.items():
+    for var, description in all_required.items():
         if not os.getenv(var):
             missing.append(f"  {var}: {description}")
-
     if missing:
         log.error("Missing required environment variables:")
         for m in missing:
             log.error(m)
-        log.error("\nSet these in your .env file or export them before running:")
-        log.error("  export OPENAI_API_KEY=sk-...")
+        if image_provider == "openai":
+            log.error("\nFor OpenAI image provider, set:")
+            log.error("  export OPENAI_API_KEY=sk-...")
+        else:
+            log.error("\nFor Forge image provider, set:")
+            log.error("  export BUILT_IN_FORGE_API_URL=https://forge.manus.ai")
+            log.error("  export BUILT_IN_FORGE_API_KEY=your_forge_key")
         log.error("  export GEMINI_API_KEY=AIza...")
         log.error("  export PRINTFUL_API_KEY=your_bearer_token")
         return False
-
     log.info("Environment check passed — all required variables set")
     return True
 
@@ -264,7 +284,15 @@ Examples:
         action="store_true",
         help="Validate environment and dependencies only — do not run pipeline",
     )
+    parser.add_argument(
+        "--image-provider",
+        choices=["forge", "openai"],
+        default=os.getenv("IMAGE_PROVIDER", "forge"),
+        help="Image generation backend: 'forge' (Manus Forge API, default) or 'openai' (DALL-E 3 via OpenAI key)",
+    )
     args = parser.parse_args()
+    # Propagate image provider to generate module via env var so it picks up the right config
+    os.environ["IMAGE_PROVIDER"] = args.image_provider
 
     # Always check environment first
     log.info("=" * 60)
@@ -272,7 +300,7 @@ Examples:
     log.info(f"Started: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     log.info("=" * 60)
 
-    if not check_environment():
+    if not check_environment(args.image_provider):
         sys.exit(1)
 
     if not check_dependencies():
