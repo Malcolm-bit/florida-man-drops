@@ -1,0 +1,12 @@
+# Florida Man Drops — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core pipeline
+openai>=1.30.0              # DALL-E 3 image generation
+google-generativeai>=0.7.0  # Gemini trend detection
+Pillow>=10.0.0              # Image validation, upscaling, DPI checks
+requests>=2.31.0            # Printful API calls
+tenacity>=8.2.0             # Retry / exponential backoff
+
+# Utilities
+python-dotenv>=1.0.0        # Load .env file automatically
