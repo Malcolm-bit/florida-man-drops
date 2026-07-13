@@ -219,6 +219,52 @@ def upscale_to_print_resolution(
 
 
 # ─────────────────────────────────────────────
+# Pillow: Composite FMA Badge onto Tee Image
+# ─────────────────────────────────────────────
+BADGE_PATH = Path(os.getenv("FMA_BADGE_PATH", "assets/fma_retro_badge_logo.png"))
+BADGE_SIZE_PX = int(os.getenv("FMA_BADGE_SIZE_PX", "320"))  # badge diameter in pixels
+# Placement: bottom-right of the print area (sleeve-adjacent / tag area)
+# At 3600×4800 a 320px badge sits ~200px from right and ~200px from bottom
+BADGE_MARGIN_RIGHT  = int(os.getenv("FMA_BADGE_MARGIN_RIGHT", "200"))
+BADGE_MARGIN_BOTTOM = int(os.getenv("FMA_BADGE_MARGIN_BOTTOM", "200"))
+
+
+def composite_fma_badge(tee_path: Path, concept_id: str) -> Path:
+    """
+    Composite the FMA retro badge logo onto the tee design image.
+    The badge is placed at the bottom-right corner (tag / sleeve area).
+    Returns the path to the composited image (overwrites tee_path in-place).
+    If the badge asset is missing the function is a no-op and returns tee_path.
+    """
+    if not BADGE_PATH.exists():
+        log.warning(
+            f"[{concept_id}] FMA badge not found at {BADGE_PATH} — skipping badge injection"
+        )
+        return tee_path
+
+    log.info(f"[{concept_id}] Compositing FMA badge ({BADGE_SIZE_PX}px) onto {tee_path.name}")
+
+    tee = Image.open(tee_path).convert("RGBA")
+    badge_raw = Image.open(BADGE_PATH).convert("RGBA")
+
+    # Resize badge to target diameter (square)
+    badge = badge_raw.resize((BADGE_SIZE_PX, BADGE_SIZE_PX), Image.LANCZOS)
+
+    # Calculate paste position: bottom-right with margin
+    tee_w, tee_h = tee.size
+    paste_x = tee_w - BADGE_SIZE_PX - BADGE_MARGIN_RIGHT
+    paste_y = tee_h - BADGE_SIZE_PX - BADGE_MARGIN_BOTTOM
+
+    # Paste using badge's own alpha as mask
+    tee.paste(badge, (paste_x, paste_y), badge)
+
+    # Save back to same path (PNG to preserve alpha)
+    tee.save(tee_path, format="PNG", dpi=(MIN_DPI, MIN_DPI))
+    log.info(f"[{concept_id}] Badge composited at ({paste_x}, {paste_y}) → {tee_path}")
+    return tee_path
+
+
+# ─────────────────────────────────────────────
 # Pre-flight: Process One Concept
 # ─────────────────────────────────────────────
 def process_concept(raw: dict) -> tuple[Optional[CatalogEntry], Optional[RejectedEntry]]:
@@ -275,6 +321,9 @@ def process_concept(raw: dict) -> tuple[Optional[CatalogEntry], Optional[Rejecte
                 rejection_reason=reason,
                 rejected_at=datetime.utcnow().isoformat(),
             )
+
+    # Step 4: Composite FMA badge onto the print-ready image
+    print_ready_path = composite_fma_badge(print_ready_path, concept_id)
 
     # All checks passed — build catalog entry
     entry = CatalogEntry(
