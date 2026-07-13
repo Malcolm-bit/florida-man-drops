@@ -28,7 +28,8 @@ from typing import Optional
 import base64
 import openai
 from PIL import Image
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -168,9 +169,8 @@ Return a JSON array of exactly {{count}} concepts. No markdown, no explanation â
 )
 def detect_trends(count: int = MAX_CONCEPTS) -> list[dict]:
     """Call Gemini to generate viral t-shirt concepts."""
-    log.info(f"Detecting {count} viral trends via Gemini...")
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-flash-latest")
+    log.info(f"Detecting {count} viral trends via Gemini (google-genai SDK)...")
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
     prompt = f"""
 Generate {count} viral Florida/angler t-shirt concepts right now.
@@ -183,7 +183,14 @@ DON'T FEED THE LOCALS, KAYAK KARMA, AIRBOAT VIBES, FLORIDA MAN APPROVED.
 
 {SYSTEM_INSTRUCTION.format(count=count)}
 """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            temperature=0.9,
+            response_mime_type="application/json",
+        ),
+    )
     raw = response.text.strip()
 
     # Strip markdown code fences if present

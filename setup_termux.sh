@@ -5,13 +5,9 @@
 # Run once after cloning the repo:
 #   bash setup_termux.sh
 #
-# Termux-specific fixes applied:
-#   - Uses pip3 (NOT pip install --upgrade pip)
-#   - Installs grpcio pre-built wheel BEFORE google-generativeai
-#     (google-ai-generativelanguage pulls in google-api-core[grpc]
-#      which requires grpcio; without a pre-built wheel it tries to
-#      compile from source and fails with Permission denied)
-#   - Pre-built aarch64 wheels exist for grpcio 1.x on PyPI
+# Uses google-genai (new SDK) instead of google-generativeai.
+# google-genai has NO grpcio dependency — installs cleanly on
+# Termux without any source compilation.
 # ============================================================
 
 set -e
@@ -25,43 +21,38 @@ echo ""
 # ─────────────────────────────────────────────
 # 1. Update Termux packages
 # ─────────────────────────────────────────────
-echo "[1/6] Updating Termux packages..."
+echo "[1/5] Updating Termux packages..."
 pkg update -y && pkg upgrade -y
 
 # ─────────────────────────────────────────────
 # 2. Install system dependencies required by Pillow
 # ─────────────────────────────────────────────
-echo "[2/6] Installing libjpeg, libpng, libwebp (required by Pillow)..."
+echo "[2/5] Installing libjpeg, libpng, libwebp (required by Pillow)..."
 pkg install -y libjpeg-turbo libpng libwebp
 
 # ─────────────────────────────────────────────
-# 3. Install grpcio pre-built wheel FIRST
-#    google-ai-generativelanguage → google-api-core[grpc] → grpcio
-#    Pre-built musllinux aarch64 wheel exists on PyPI — no compilation needed.
-#    Must be installed before google-generativeai or pip will try to build it.
-# ─────────────────────────────────────────────
-echo "[3/6] Installing grpcio pre-built wheel (required by google-generativeai)..."
-pip3 install grpcio --prefer-binary
-
-# ─────────────────────────────────────────────
-# 4. Install remaining Python packages
+# 3. Install Python packages
+#    Uses google-genai (new REST-based SDK, no grpcio needed)
+#    instead of google-generativeai (deprecated, requires grpcio
+#    which fails to install on Termux from source).
+#
 #    NOTE: Do NOT run 'pip install --upgrade pip' in Termux —
 #    it overwrites the Termux-managed pip and breaks things.
 # ─────────────────────────────────────────────
-echo "[4/6] Installing pipeline dependencies..."
+echo "[3/5] Installing pipeline dependencies..."
 pip3 install \
     openai \
     Pillow \
-    google-generativeai \
+    google-genai \
     tenacity \
     requests
 
 echo "  ✓ All Python packages installed"
 
 # ─────────────────────────────────────────────
-# 5. Create .env template (if not already present)
+# 4. Create .env template (if not already present)
 # ─────────────────────────────────────────────
-echo "[5/6] Creating .env template..."
+echo "[4/5] Creating .env template..."
 if [ -f ".env" ]; then
     echo "  .env already exists — skipping (edit it manually)"
 else
@@ -72,7 +63,7 @@ else
 # Fill in your API keys below, then run:
 #   source .env && python3 main.py --dry-run
 
-# Required: Viral trend detection
+# Required: Viral trend detection (Gemini)
 # Get from: https://aistudio.google.com/apikey
 GEMINI_API_KEY=
 
@@ -103,9 +94,9 @@ EOF
 fi
 
 # ─────────────────────────────────────────────
-# 6. Verify environment
+# 5. Verify environment
 # ─────────────────────────────────────────────
-echo "[6/6] Running environment check..."
+echo "[5/5] Running environment check..."
 if [ -f ".env" ]; then
     # shellcheck disable=SC1091
     set -a && source .env && set +a
