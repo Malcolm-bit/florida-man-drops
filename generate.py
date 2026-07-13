@@ -73,6 +73,7 @@ class GeneratedConcept:
     trend_category: str
     confidence_score: int
     is_limited_drop: bool
+    design_style: str          # 'smack' or 'retro'
     dalle_image_prompt: str
     local_image_path: str
     image_width: int
@@ -86,22 +87,72 @@ class GeneratedConcept:
 # ─────────────────────────────────────────────
 # Gemini: Trend Detection
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Brand Identity — Retro/Rugged Style Guide
+# ─────────────────────────────────────────────
+BRAND_STYLE_GUIDE = """
+BRAND: Florida Man Adventures
+AESTHETIC: Retro/Rugged — distressed vintage screen-print, outdoor badge culture
+COLOR PALETTE: Burnt orange (#c45c1a), navy blue (#1a2a3a), cream (#f4e7d3), aged white
+TYPOGRAPHY: Bold slab-serif fonts (similar to Rockwell, Clarendon, or Cooper Black)
+DESIGN STYLE: Circular badge layouts, distressed textures, vintage outdoor brand feel
+  — Think: National Park badges, old fishing tournament patches, 1970s sportswear
+  — Silhouettes of airboats, gators, herons, mangroves, swamp scenes at sunset
+  — Worn/aged texture overlays, halftone dots, rough ink edges
+TONE: Rugged, self-aware, Southern-proud, slightly absurdist
+LOGO ELEMENT: The brand badge (circular, airboat silhouette at sunset) can appear
+  as a small secondary element on sleeve or back-neck area of designs.
+"""
+
+# ─────────────────────────────────────────────
+# Dual Design Style System
+# ─────────────────────────────────────────────
+# Style A: Smack Apparel (primary — ~60% of drops)
+# Bold, high-contrast, dark tee with punchy oversized text.
+# Think: Barstool Sports merch, viral streetwear, meme drops.
+# Style B: Retro/Rugged (secondary — ~40% of drops)
+# Distressed vintage badge, outdoor brand feel, burnt orange + navy.
+# Think: National Park patches, 1970s fishing tournament tees.
+
+STYLE_SMACK = """STYLE: Smack Apparel (primary)
+- Background: black or dark charcoal tee
+- Text: oversized, bold, all-caps, high-contrast (white, neon green, or gold on black)
+- Layout: text-heavy, centered, punchy — the headline IS the design
+- Typography: heavy sans-serif or condensed block font (Impact, Anton, Bebas Neue style)
+- Vibe: viral meme energy, streetwear, instantly readable from 10 feet away
+- Optional: minimal graphic element (gator silhouette, fish icon) supporting the text
+- NO complex illustrations, NO busy backgrounds, NO vintage textures"""
+
+STYLE_RETRO = """STYLE: Retro/Rugged (secondary)
+- Color palette: burnt orange (#c45c1a), navy blue (#1a2a3a), cream/aged white
+- Typography: bold slab-serif fonts (Rockwell, Clarendon, Cooper Black style), distressed/worn
+- Layout: circular badge compositions OR bold centered text with distressed borders
+- Texture: vintage screen-print aesthetic, halftone dots, rough ink edges
+- Scene elements: airboats, gators, herons, mangroves, swamp sunsets, fishing silhouettes
+- Vibe: outdoor badge culture, 1970s sportswear, National Park patch feel
+- NO modern flat design, NO neon colors, NO photorealistic elements"""
+
 SYSTEM_INSTRUCTION = """
 You are a viral apparel trend analyst specializing in Florida culture, fishing, and Southern humor.
 Your job is to identify high-potential concepts for viral t-shirt designs.
 
+The factory uses TWO design styles. Assign each concept a design_style field:
+- Use "smack" for approximately 60% of concepts (bold, text-heavy, dark tee, meme energy)
+- Use "retro" for approximately 40% of concepts (vintage badge, burnt orange/navy, outdoor brand)
+
 For each concept you MUST return a JSON object with these exact fields:
-{
+{{
   "title": "SHORT UPPERCASE HEADLINE (max 4 words)",
   "headline": "SAME AS TITLE — the text that appears on the shirt",
   "description": "One punchy sentence describing the shirt vibe",
   "trend_category": one of ["fishing_meme", "regional_slang", "viral_moment", "wildlife_encounter", "florida_lifestyle"],
   "confidence_score": integer 70-99,
   "is_limited_drop": boolean,
-  "dalle_image_prompt": "Full DALL-E 3 prompt — MUST include: minimalist vector art style, isolated on transparent background, high contrast, suitable for DTG printing, 300 DPI, PNG-24 format, bold readable font, no photorealistic backgrounds, Florida/angler cultural reference"
-}
+  "design_style": "smack" or "retro",
+  "dalle_image_prompt": "Full DALL-E 3 prompt tailored to the chosen design_style — MUST include: isolated on transparent background, suitable for DTG printing, 300 DPI, PNG-24 format, Florida/angler cultural reference. For smack style: bold oversized text, high contrast, dark background. For retro style: vintage screen-print, burnt orange and navy, distressed badge layout."
+}}
 
-Return a JSON array of exactly {count} concepts. No markdown, no explanation — raw JSON only.
+Return a JSON array of exactly {{count}} concepts. No markdown, no explanation — raw JSON only.
 """
 
 @retry(
@@ -145,12 +196,27 @@ DON'T FEED THE LOCALS, KAYAK KARMA, AIRBOAT VIBES, FLORIDA MAN APPROVED.
 # ─────────────────────────────────────────────
 # DALL-E 3: Image Generation
 # ─────────────────────────────────────────────
-PRINT_SPEC_SUFFIX = (
-    " Minimalist vector art style. Isolated on transparent background. "
-    "High contrast black and white or two-color design. Bold, readable font. "
-    "Suitable for DTG (direct-to-garment) printing. 300 DPI. PNG-24 format. "
-    "No photorealistic backgrounds. No gradients. Clean edges."
+# Style-aware print spec suffixes appended to every DALL-E prompt
+PRINT_SPEC_SMACK = (
+    " Bold oversized all-caps text, high contrast white or neon green on black. "
+    "Heavy condensed block font (Impact/Anton/Bebas Neue style). Text-heavy centered layout. "
+    "Minimal supporting graphic element optional (gator, fish silhouette). "
+    "Isolated on transparent background. Suitable for DTG printing. "
+    "300 DPI. PNG-24 format. No busy backgrounds. No gradients. Clean sharp edges."
 )
+
+PRINT_SPEC_RETRO = (
+    " Retro vintage screen-print aesthetic. Distressed halftone texture overlay. "
+    "Color palette: burnt orange (#c45c1a), navy blue (#1a2a3a), cream/aged white — no neon colors. "
+    "Bold slab-serif typography (Rockwell/Clarendon/Cooper Black style). "
+    "Circular badge layout or centered bold text with distressed border. "
+    "Florida swamp/airboat/gator scene elements. Isolated on transparent background. "
+    "Suitable for DTG printing. 300 DPI. PNG-24 format. No photorealistic elements. Clean distressed edges."
+)
+
+def get_print_spec(design_style: str) -> str:
+    """Return the correct print spec suffix based on design style."""
+    return PRINT_SPEC_RETRO if design_style == "retro" else PRINT_SPEC_SMACK
 
 @retry(
     stop=stop_after_attempt(3),
@@ -158,16 +224,17 @@ PRINT_SPEC_SUFFIX = (
     retry=retry_if_exception_type(Exception),
     before_sleep=before_sleep_log(log, logging.WARNING),
 )
-def generate_dalle_image(prompt: str, concept_id: str) -> tuple[Path, dict]:
+def generate_dalle_image(prompt: str, concept_id: str, design_style: str = "smack") -> tuple[Path, dict]:
     """
     Call DALL-E 3 to generate an image, download it, and return
     (local_path, image_metadata).
     Retries up to 3 times with exponential backoff on any failure.
+    design_style: 'smack' (bold text-heavy viral) or 'retro' (vintage badge)
     """
-    log.info(f"[{concept_id}] Calling DALL-E 3...")
+    log.info(f"[{concept_id}] Calling DALL-E 3 [{design_style.upper()} style]...")
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-    full_prompt = prompt + PRINT_SPEC_SUFFIX
+    full_prompt = prompt + get_print_spec(design_style)
 
     response = client.images.generate(
         model="dall-e-3",
@@ -267,14 +334,16 @@ def generate_concept(raw: dict, attempt: int = 1) -> Optional[GeneratedConcept]:
     Given a raw concept dict from Gemini, generate the DALL-E image,
     validate it, and return a GeneratedConcept.
     Returns None if all retries fail.
+    design_style from Gemini: 'smack' (bold viral) or 'retro' (vintage badge)
     """
     title = raw.get("title", "UNTITLED").upper().replace(" ", "_")
     concept_id = hashlib.md5(title.encode()).hexdigest()[:8]
+    design_style = raw.get("design_style", "smack")  # default to Smack Apparel style
 
-    log.info(f"Processing concept: {title} (id={concept_id}, attempt={attempt})")
+    log.info(f"Processing concept: {title} (id={concept_id}, style={design_style.upper()}, attempt={attempt})")
 
     try:
-        local_path, _ = generate_dalle_image(raw["dalle_image_prompt"], concept_id)
+        local_path, _ = generate_dalle_image(raw["dalle_image_prompt"], concept_id, design_style)
         meta = validate_image(local_path, concept_id)
 
         return GeneratedConcept(
@@ -285,6 +354,7 @@ def generate_concept(raw: dict, attempt: int = 1) -> Optional[GeneratedConcept]:
             trend_category=raw.get("trend_category", "florida_lifestyle"),
             confidence_score=int(raw.get("confidence_score", 80)),
             is_limited_drop=bool(raw.get("is_limited_drop", False)),
+            design_style=design_style,
             dalle_image_prompt=raw.get("dalle_image_prompt", ""),
             local_image_path=str(local_path),
             image_width=meta["width"],
