@@ -108,11 +108,11 @@ def check_environment(image_provider: str = "forge") -> bool:
 def check_dependencies() -> bool:
     """Verify all required Python packages are installed."""
     required = {
-        "openai": "pip install openai",
-        "PIL": "pip install Pillow",
-        "google.generativeai": "pip install google-generativeai",
-        "tenacity": "pip install tenacity",
-        "requests": "pip install requests",
+        "openai": "pip3 install openai",
+        "PIL": "pip3 install Pillow",
+        "google.genai": "pip3 install google-genai",
+        "tenacity": "pip3 install tenacity",
+        "requests": "pip3 install requests",
     }
     missing = []
     for module, install_cmd in required.items():
@@ -126,7 +126,7 @@ def check_dependencies() -> bool:
         for m in missing:
             log.error(m)
         log.error("\nInstall all dependencies:")
-        log.error("  pip install openai Pillow google-generativeai tenacity requests")
+        log.error("  pip3 install openai Pillow google-genai tenacity requests")
         return False
 
     log.info("Dependency check passed — all packages available")
