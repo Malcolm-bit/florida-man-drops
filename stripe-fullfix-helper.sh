@@ -4,7 +4,7 @@
 GITHUB_REPO="https://github.com/YOUR-USERNAME/YOUR-REPO.git"   # EDIT!
 PRODUCT_ID="prod_abc123"                                       # EDIT!
 SITE_URL="https://www.floridamanadventures.com"                # EDIT!
-LOCAL_WEBHOOK_URL="http://localhost:300/api/webhook"          # EDIT!
+LOCAL_WEBHOOK_URL="http://localhost:3000/api/webhook"         # EDIT!
 FILES_TO_EDIT="components/BuyNowButton.jsx pages/api/checkout.js pages/api/webhook.js"
 # -------------------------------------
 
