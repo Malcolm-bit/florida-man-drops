@@ -2,7 +2,7 @@
 
 > High-velocity apparel dropshipping automation engine. Built for rapid, data-driven scaling from viral trend identification to print-ready deployment.
 
-An autonomous, AI-driven dropshipping pipeline that turns viral cultural moments into high-quality apparel designs and deploys them to Printful for fulfillment at [floridamanadventures.com](https://www.floridamanadventures.com).
+An autonomous, AI-driven dropshipping pipeline that turns viral cultural moments into high-quality apparel designs and deploys them to Printful for fulfillment at [floridamanadventures.shop](https://floridamanadventures.shop).
 
 ---
 
